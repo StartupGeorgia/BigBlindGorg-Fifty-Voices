@@ -40,20 +40,21 @@ const agentFormSchema = z.object({
   language: z.string().min(1, "Please select a language"),
 
   // Voice Settings
-  ttsProvider: z.enum(["elevenlabs", "openai"]),
+  ttsProvider: z.enum(["elevenlabs", "openai", "google"]),
+  elevenLabsModel: z.string().default("turbo-v2.5"),
   elevenLabsVoiceId: z.string().optional(),
   ttsSpeed: z.number().min(0.5).max(2).default(1),
 
   // STT Settings
-  sttProvider: z.enum(["deepgram", "openai"]),
-  deepgramModel: z.string().default("nova-2"),
+  sttProvider: z.enum(["deepgram", "openai", "google"]),
+  deepgramModel: z.string().default("nova-3"),
 
   // LLM Settings
-  llmProvider: z.enum(["openai", "openai-realtime"]),
-  llmModel: z.string().default("gpt-4"),
+  llmProvider: z.enum(["openai", "openai-realtime", "anthropic", "google"]),
+  llmModel: z.string().default("gpt-4o"),
   systemPrompt: z.string().min(10, "System prompt is required"),
   temperature: z.number().min(0).max(2).default(0.7),
-  maxTokens: z.number().min(100).max(4000).default(1000),
+  maxTokens: z.number().min(100).max(16000).default(2000),
 
   // Telephony
   telephonyProvider: z.enum(["telnyx", "twilio"]),
@@ -70,13 +71,14 @@ type AgentFormValues = z.infer<typeof agentFormSchema>;
 const defaultValues: Partial<AgentFormValues> = {
   language: "en-US",
   ttsProvider: "elevenlabs",
+  elevenLabsModel: "turbo-v2.5",
   ttsSpeed: 1,
   sttProvider: "deepgram",
-  deepgramModel: "nova-2",
-  llmProvider: "openai",
-  llmModel: "gpt-4",
+  deepgramModel: "nova-3",
+  llmProvider: "openai-realtime",
+  llmModel: "gpt-realtime",
   temperature: 0.7,
-  maxTokens: 1000,
+  maxTokens: 2000,
   telephonyProvider: "telnyx",
   enableRecording: true,
   enableTranscript: true,
@@ -220,8 +222,47 @@ export default function NewAgentPage() {
                               ElevenLabs (Recommended)
                             </SelectItem>
                             <SelectItem value="openai">OpenAI TTS</SelectItem>
+                            <SelectItem value="google">Google Gemini TTS</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormDescription>
+                          Choose your text-to-speech provider
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="elevenLabsModel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ElevenLabs Model</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="turbo-v2.5">
+                              Turbo v2.5 (Recommended - Best Quality)
+                            </SelectItem>
+                            <SelectItem value="flash-v2.5">
+                              Flash v2.5 (Fastest - 75ms latency)
+                            </SelectItem>
+                            <SelectItem value="eleven-multilingual-v2">
+                              Multilingual v2 (29 languages)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Turbo v2.5: ~300ms latency, best quality | Flash v2.5: ~75ms latency
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -248,6 +289,9 @@ export default function NewAgentPage() {
                             </SelectItem>
                             <SelectItem value="MF3mGyEYCl7XYWbV9V6O">
                               Elli (Female, American)
+                            </SelectItem>
+                            <SelectItem value="pNInz6obpgDQGcFmaJgB">
+                              Adam (Male, American)
                             </SelectItem>
                           </SelectContent>
                         </Select>
@@ -286,8 +330,12 @@ export default function NewAgentPage() {
                               Deepgram (Recommended)
                             </SelectItem>
                             <SelectItem value="openai">OpenAI Whisper</SelectItem>
+                            <SelectItem value="google">Google Gemini STT</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormDescription>
+                          Deepgram Nova-3: 6.84% WER, multilingual, PII redaction
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -309,11 +357,18 @@ export default function NewAgentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="nova-2">Nova 2 (Latest)</SelectItem>
-                            <SelectItem value="nova">Nova</SelectItem>
+                            <SelectItem value="nova-3">
+                              Nova-3 (Latest - 54% better WER)
+                            </SelectItem>
+                            <SelectItem value="nova-2">
+                              Nova-2 (25% cheaper, still excellent)
+                            </SelectItem>
                             <SelectItem value="enhanced">Enhanced</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormDescription>
+                          Nova-3: Multilingual, keyterm prompting, PII redaction
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -347,12 +402,17 @@ export default function NewAgentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="openai">OpenAI</SelectItem>
                             <SelectItem value="openai-realtime">
-                              OpenAI Realtime API (Beta)
+                              OpenAI Realtime (Recommended)
                             </SelectItem>
+                            <SelectItem value="openai">OpenAI Standard</SelectItem>
+                            <SelectItem value="anthropic">Anthropic Claude</SelectItem>
+                            <SelectItem value="google">Google Gemini</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormDescription>
+                          Realtime API: End-to-end speech, SIP support, production-ready
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -374,13 +434,26 @@ export default function NewAgentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-                            <SelectItem value="gpt-4">GPT-4</SelectItem>
-                            <SelectItem value="gpt-3.5-turbo">
-                              GPT-3.5 Turbo
+                            <SelectItem value="gpt-realtime">
+                              gpt-realtime (Latest - Best for Voice)
+                            </SelectItem>
+                            <SelectItem value="gpt-4o">
+                              GPT-4o (Multimodal - 232ms latency)
+                            </SelectItem>
+                            <SelectItem value="gpt-4o-mini">
+                              GPT-4o-mini (25x cheaper, fast)
+                            </SelectItem>
+                            <SelectItem value="claude-3-7-sonnet">
+                              Claude 3.7 Sonnet (Best reasoning)
+                            </SelectItem>
+                            <SelectItem value="gemini-2.5-flash">
+                              Gemini 2.5 Flash (Multimodal voice)
                             </SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormDescription>
+                          gpt-realtime: Production voice agents | GPT-4o: Complex tasks | GPT-4o-mini: Budget
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
