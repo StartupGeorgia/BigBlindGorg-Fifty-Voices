@@ -84,12 +84,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <a
-              href="/dashboard/agents/new"
+              href="/dashboard/agents/new-simplified"
               className="block p-4 rounded-lg border hover:bg-accent transition-colors"
             >
               <div className="font-medium">Create Voice Agent</div>
               <div className="text-sm text-muted-foreground">
-                Configure your first AI voice agent
+                Choose pricing tier & configure your agent
               </div>
             </a>
             <a

@@ -24,7 +24,7 @@ export default function AgentsPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/agents/new">
+          <Link href="/dashboard/agents/new-simplified">
             <Plus className="mr-2 h-4 w-4" />
             Create Agent
           </Link>
@@ -41,7 +41,7 @@ export default function AgentsPage() {
               with AI
             </p>
             <Button asChild>
-              <Link href="/dashboard/agents/new">
+              <Link href="/dashboard/agents/new-simplified">
                 <Plus className="mr-2 h-4 w-4" />
                 Create Your First Agent
               </Link>
