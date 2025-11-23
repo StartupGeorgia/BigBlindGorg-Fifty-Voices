@@ -267,54 +267,74 @@ export default function NewAgentSimplifiedPage() {
                       first, then enable them here for this agent.
                     </p>
 
-                    <div className="space-y-2">
-                      {["google-calendar", "salesforce", "hubspot", "notion", "slack"].map(
-                        (toolId) => (
-                          <FormField
-                            key={toolId}
-                            control={form.control}
-                            name="enabledTools"
-                            render={({ field }) => {
-                              const toolConfig = {
-                                "google-calendar": {
-                                  name: "Google Calendar",
-                                  desc: "Schedule meetings, check availability",
-                                },
-                                salesforce: { name: "Salesforce", desc: "Access CRM data" },
-                                hubspot: { name: "HubSpot", desc: "Manage contacts" },
-                                notion: { name: "Notion", desc: "Query databases" },
-                                slack: { name: "Slack", desc: "Send messages" },
-                              }[toolId];
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {[
+                        { id: "google-calendar", name: "Google Calendar", desc: "Schedule meetings, check availability", connected: false },
+                        { id: "salesforce", name: "Salesforce", desc: "Access CRM data", connected: false },
+                        { id: "hubspot", name: "HubSpot", desc: "Manage contacts & deals", connected: false },
+                        { id: "notion", name: "Notion", desc: "Query & update databases", connected: false },
+                        { id: "slack", name: "Slack", desc: "Send messages & notifications", connected: false },
+                        { id: "gmail", name: "Gmail", desc: "Send emails", connected: false },
+                        { id: "google-sheets", name: "Google Sheets", desc: "Read & write spreadsheets", connected: false },
+                        { id: "airtable", name: "Airtable", desc: "Access database records", connected: false },
+                        { id: "stripe", name: "Stripe", desc: "Process payments", connected: false },
+                        { id: "zendesk", name: "Zendesk", desc: "Create support tickets", connected: false },
+                        { id: "github", name: "GitHub", desc: "Repository & issue management", connected: false },
+                        { id: "jira", name: "Jira", desc: "Project management", connected: false },
+                      ].map((tool) => (
+                        <FormField
+                          key={tool.id}
+                          control={form.control}
+                          name="enabledTools"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                              <FormControl>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 mt-1"
+                                  checked={field.value?.includes(tool.id)}
+                                  onChange={(e) => {
+                                    const current = field.value || [];
+                                    field.onChange(
+                                      e.target.checked
+                                        ? [...current, tool.id]
+                                        : current.filter((v) => v !== tool.id)
+                                    );
+                                  }}
+                                  disabled={!tool.connected}
+                                />
+                              </FormControl>
+                              <div className="space-y-1 leading-none flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <FormLabel className={`font-medium cursor-pointer ${!tool.connected ? "text-muted-foreground" : ""}`}>
+                                    {tool.name}
+                                  </FormLabel>
+                                  {tool.connected ? (
+                                    <Badge variant="default" className="text-xs">
+                                      Connected
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs">
+                                      Not Connected
+                                    </Badge>
+                                  )}
+                                </div>
+                                <FormDescription className="text-xs">
+                                  {tool.desc}
+                                </FormDescription>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+                      ))}
+                    </div>
 
-                              return (
-                                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                                  <FormControl>
-                                    <input
-                                      type="checkbox"
-                                      className="h-4 w-4 mt-0.5"
-                                      checked={field.value?.includes(toolId)}
-                                      onChange={(e) => {
-                                        const current = field.value || [];
-                                        field.onChange(
-                                          e.target.checked
-                                            ? [...current, toolId]
-                                            : current.filter((v) => v !== toolId)
-                                        );
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <div className="space-y-1 leading-none">
-                                    <FormLabel className="font-medium cursor-pointer">
-                                      {toolConfig?.name}
-                                    </FormLabel>
-                                    <FormDescription>{toolConfig?.desc}</FormDescription>
-                                  </div>
-                                </FormItem>
-                              );
-                            }}
-                          />
-                        )
-                      )}
+                    <div className="pt-2">
+                      <Button type="button" variant="outline" size="sm" asChild>
+                        <Link href="/dashboard/integrations" target="_blank">
+                          Connect More Integrations
+                        </Link>
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
