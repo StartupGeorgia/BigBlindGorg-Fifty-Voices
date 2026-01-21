@@ -485,7 +485,7 @@ class TelnyxService(TelephonyProvider):
             TeXML application ID or None if failed
         """
         client = await self._get_http_client()
-        app_name = "voice-noob-inbound"
+        app_name = "fifty-voices-inbound"
 
         try:
             # List existing TeXML applications

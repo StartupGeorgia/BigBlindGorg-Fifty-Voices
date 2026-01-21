@@ -1,7 +1,7 @@
 [project]
-name = "voicenoob-api"
+name = "fiftyvoices-api"
 version = "0.1.0"
-description = "Voice Noob API - FastAPI backend for voice agent platform"
+description = "Fifty Voices API - FastAPI backend for voice agent platform"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

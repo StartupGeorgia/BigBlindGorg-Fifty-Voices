@@ -723,9 +723,8 @@ async def save_transcript(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    # Verify user owns this agent
-    user_uuid = user_id_to_uuid(user_id)
-    if agent.user_id != user_uuid:
+    # Verify user owns this agent (compare int to int)
+    if agent.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this agent")
 
     # Skip if transcript is empty
@@ -745,7 +744,7 @@ async def save_transcript(
     started_at = ended_at - timedelta(seconds=request.duration_seconds)
 
     call_record = CallRecord(
-        user_id=user_uuid,
+        user_id=user_id_to_uuid(user_id),
         workspace_id=agent_workspace_id,
         agent_id=uuid.UUID(agent_id),
         provider="test",

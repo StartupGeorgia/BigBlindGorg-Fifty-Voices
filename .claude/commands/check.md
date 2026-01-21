@@ -7,135 +7,81 @@ description: Run all linting and typechecking, fix all issues
 
 Runs comprehensive quality checks on both backend and frontend, then fixes all issues.
 
-## Detected Configuration
+## Project Configuration
 
-**Backend (Python):**
+**Backend (Python/FastAPI):**
 - Package Manager: uv
 - Linter: ruff (40+ rule sets)
 - Type Checker: mypy (strict mode)
 - Formatter: ruff format
-- Test Runner: pytest
 
 **Frontend (TypeScript/Next.js):**
 - Package Manager: npm
-- Linter: ESLint (Next.js + TypeScript rules)
-- Type Checker: TypeScript (strict mode)
+- Linter: ESLint (--max-warnings=0)
+- Type Checker: TypeScript (tsc --noEmit)
 - Formatter: Prettier
-- Combined Check: `npm run check`
 
 ## Step 1: Run All Quality Checks
 
-### Backend:
+Run these commands and capture output:
+
 ```bash
-cd backend
-echo "Running ruff linter..."
-uv run ruff check app tests
+# Backend checks
+cd backend && uv run ruff check app tests 2>&1 || true
+cd backend && uv run mypy app 2>&1 || true
+cd backend && uv run ruff format --check app tests 2>&1 || true
 
-echo "Running mypy type checker..."
-uv run mypy app
-
-echo "Checking code formatting..."
-uv run ruff format --check app tests
+# Frontend checks
+cd frontend && npm run lint 2>&1 || true
+cd frontend && npm run type-check 2>&1 || true
+cd frontend && npm run format:check 2>&1 || true
 ```
 
-### Frontend:
-```bash
-cd frontend
-echo "Running comprehensive checks..."
-npm run check
-```
+## Step 2: Parse and Group Errors
 
-This runs: eslint + tsc + prettier check
+Group errors by domain:
+- **Backend type errors**: mypy issues
+- **Backend lint errors**: ruff check issues
+- **Backend format errors**: ruff format --check issues
+- **Frontend type errors**: tsc issues
+- **Frontend lint errors**: eslint issues
+- **Frontend format errors**: prettier issues
 
-## Step 2: Collect All Errors
+## Step 3: Spawn Parallel Agents to Fix Issues
 
-Parse the output and group errors by type:
-- **Type errors** (mypy, tsc)
-- **Lint errors** (ruff, eslint)
-- **Format errors** (ruff format, prettier)
+**IMPORTANT**: Use a SINGLE response with MULTIPLE Task tool calls to run agents in parallel.
 
-## Step 3: Auto-Fix What's Possible
+For each domain with errors, spawn an agent:
 
-### Backend:
-```bash
-cd backend
-# Auto-fix linting issues
-uv run ruff check app tests --fix
+1. **backend-fixer** agent: Fix all backend issues
+   - Run `cd backend && uv run ruff check app tests --fix` for auto-fixable lint
+   - Run `cd backend && uv run ruff format app tests` for formatting
+   - Manually fix remaining mypy type errors
+   - Verify with `cd backend && uv run ruff check app tests && uv run mypy app`
 
-# Auto-format code
-uv run ruff format app tests
-```
+2. **frontend-fixer** agent: Fix all frontend issues
+   - Run `cd frontend && npm run lint:fix` for auto-fixable lint
+   - Run `cd frontend && npm run format` for formatting
+   - Manually fix remaining TypeScript errors
+   - Verify with `cd frontend && npm run check`
 
-### Frontend:
-```bash
-cd frontend
-# Auto-fix linting
-npm run lint:fix
+## Step 4: Verify All Fixes
 
-# Auto-format code
-npm run format
-```
-
-## Step 4: Re-run Checks
-
-Verify all auto-fixes worked:
-
-### Backend:
-```bash
-cd backend
-uv run ruff check app tests
-uv run mypy app
-uv run ruff format --check app tests
-```
-
-### Frontend:
-```bash
-cd frontend
-npm run check
-```
-
-## Step 5: Manual Fix Remaining Issues
-
-If any errors remain after auto-fix:
-1. Read each error carefully
-2. Fix the code
-3. Re-run checks
-4. Repeat until ZERO errors
-
-## Step 6: Run Tests
-
-Ensure nothing broke:
-
-### Backend:
-```bash
-cd backend
-uv run pytest
-```
-
-### Frontend:
-```bash
-cd frontend
-npm test
-```
-
-## Step 7: Verify Clean State
-
-Final verification:
+After agents complete, run full verification:
 
 ```bash
 # Backend
-cd backend && uv run ruff check app && uv run mypy app && echo "✅ Backend clean"
+cd backend && uv run ruff check app tests && uv run mypy app && uv run ruff format --check app tests
 
 # Frontend
-cd frontend && npm run check && echo "✅ Frontend clean"
+cd frontend && npm run check
 ```
 
 ## Success Criteria
 
-- ✅ Zero linting errors (backend + frontend)
-- ✅ Zero type errors (backend + frontend)
-- ✅ All code properly formatted
-- ✅ All tests passing
-- ✅ No warnings in output
+- Zero linting errors (backend + frontend)
+- Zero type errors (backend + frontend)
+- All code properly formatted
+- No warnings in output
 
 **Do not complete until ALL criteria are met!**

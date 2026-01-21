@@ -1,81 +1,83 @@
-# Voice Noob
+# Fifty Voices
 
-AI-powered voice agent platform for configuring and deploying custom voice agents with tool calling, multi-provider support, and transparent pricing tiers.
+Open-source AI voice agent platform for building and deploying phone agents that handle inbound/outbound calls for appointments, questions, and lead qualification.
 
 ## Project Structure
 
 ```
-voice-noob/
-├── backend/                    # FastAPI Python backend
+fifty-voices/
+├── backend/                    # FastAPI Python API
 │   ├── app/
-│   │   ├── api/               # API routes (agents, auth, crm, realtime, telephony, workspaces)
-│   │   ├── core/              # Config, security, auth, rate limiting
-│   │   ├── db/                # Database session, Redis client
-│   │   ├── middleware/        # Request tracing, security headers
-│   │   ├── models/            # SQLAlchemy models (user, agent, contact, appointment, workspace)
-│   │   └── services/          # Business logic & integrations
-│   │       └── tools/         # Voice agent tools (CRM, SMS, calendars)
-│   ├── migrations/versions/   # Alembic database migrations
-│   └── tests/                 # Backend tests (unit, integration, api)
-├── frontend/                   # Next.js 15 React frontend
+│   │   ├── api/               # REST endpoints (agents, calls, crm, telephony, etc.)
+│   │   ├── core/              # Config, auth, caching, rate limiting
+│   │   ├── db/                # SQLAlchemy session and base models
+│   │   ├── middleware/        # CORS, error handling, logging
+│   │   ├── models/            # Database models (Agent, User, Call, Contact, etc.)
+│   │   ├── services/          # Business logic, AI integration, telephony providers
+│   │   │   ├── telephony/     # Telnyx/Twilio implementations
+│   │   │   └── tools/         # Built-in agent tools (contacts, appointments, etc.)
+│   │   └── main.py            # FastAPI app entry point
+│   ├── migrations/            # Alembic database migrations
+│   ├── tests/                 # pytest test suite
+│   └── scripts/               # Backend utilities (check.sh)
+│
+├── frontend/                   # Next.js 15 React app
 │   ├── src/
-│   │   ├── app/dashboard/     # Dashboard pages (agents, crm, calls, settings, workspaces)
-│   │   ├── app/embed/         # Embeddable voice widget
-│   │   ├── components/ui/     # shadcn/ui components
+│   │   ├── app/               # Next.js App Router pages
+│   │   │   └── dashboard/     # Main UI (agents, calls, campaigns, crm, settings)
+│   │   ├── components/        # React components
+│   │   │   └── ui/            # shadcn/ui component library
+│   │   ├── lib/               # API clients, utilities, integrations config
 │   │   ├── hooks/             # Custom React hooks
-│   │   └── lib/api/           # API client functions
-│   └── public/                # Static assets
-└── docker-compose.yml         # PostgreSQL 17 + Redis 7
+│   │   └── widget/            # Embeddable voice widget source
+│   ├── public/widget/         # Compiled widget distribution
+│   └── tests/                 # Frontend tests (vitest)
+│
+├── scripts/                    # Project-level scripts (check-all.sh)
+├── docker-compose.yml          # PostgreSQL 17 + Redis 7
+└── Makefile                    # Common commands
 ```
 
 ## Organization Rules
 
-**Backend:**
-- API routes → `app/api/`, one file per resource
-- Business logic → `app/services/`, organized by domain
-- Models → `app/models/`, one model per file
-- Tools → `app/services/tools/`, one class per integration
-
-**Frontend:**
-- Pages → `src/app/dashboard/`, using Next.js App Router
-- Components → `src/components/`, reusable UI elements
-- Lib → `src/lib/`, utilities, types, API clients
-- One component per file, co-locate related files
+**Keep code organized and modularized:**
+- API routes → `backend/app/api/`, one file per resource
+- Database models → `backend/app/models/`, one model per file
+- Services/business logic → `backend/app/services/`
+- React pages → `frontend/src/app/`, following Next.js App Router conventions
+- React components → `frontend/src/components/`, one component per file
+- UI primitives → `frontend/src/components/ui/` (shadcn/ui)
+- API clients → `frontend/src/lib/api/`
+- Tests → Next to the code they test or in `/tests`
 
 ## Code Quality - Zero Tolerance
 
-### Backend:
+After editing ANY file, run:
+
 ```bash
-cd backend
-uv run ruff check app tests --fix        # Lint + auto-fix
-uv run ruff format app tests             # Format
-uv run mypy app                          # Type check (strict)
+# Full check (backend + frontend)
+make check
+
+# Or run separately:
+# Backend only
+cd backend && bash scripts/check.sh
+
+# Frontend only
+cd frontend && npm run check
 ```
 
-### Frontend:
+This runs:
+- **Backend**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
+- **Frontend**: `eslint`, `tsc --noEmit`, `prettier --check`
+
+Fix ALL errors/warnings before continuing.
+
+## Development
+
 ```bash
-cd frontend
-npm run check                            # eslint + tsc + prettier
-npm run lint:fix && npm run format       # Auto-fix
+# Start services (postgres, redis)
+make dev
+
+# Backend: cd backend && uv run uvicorn app.main:app --reload
+# Frontend: cd frontend && npm run dev
 ```
-
-### Server Checks:
-```bash
-cd backend && uv run uvicorn app.main:app --reload   # Check runtime warnings
-cd frontend && npm run dev                            # Check compilation warnings
-```
-
-**Fix ALL errors/warnings before continuing!**
-
-## Key Commands
-
-- `/update-app` - Update dependencies, fix deprecations
-- `/check` - Run all quality checks, auto-fix issues
-- `/commit` - Run checks, commit with AI message, push
-
-## Tech Stack
-
-**Voice & AI**: Pipecat, Deepgram, ElevenLabs, OpenAI GPT-4o Realtime
-**Backend**: FastAPI, PostgreSQL 17, Redis 7, SQLAlchemy 2.0, Python 3.12+, uv
-**Frontend**: Next.js 15, React 19, TypeScript 5.7, Tailwind, shadcn/ui
-**Telephony**: Telnyx (primary), Twilio (optional)
