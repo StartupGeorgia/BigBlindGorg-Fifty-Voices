@@ -30,6 +30,7 @@ from app.api import (
     crm,
     embed,
     health,
+    inxphone,
     integrations,
     phone_numbers,
     realtime,
@@ -48,6 +49,7 @@ from app.middleware.request_tracing import RequestTracingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.user import User
 from app.services.campaign_worker import start_campaign_worker, stop_campaign_worker
+from app.services.inxphone_recording_sync import start_recording_sync, stop_recording_sync
 
 # Configure structured logging with async processors
 structlog.configure(
@@ -133,10 +135,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: PLR0915
     except Exception:
         logger.exception("Failed to start campaign worker - campaigns will not process")
 
+    # Start InXPhone recording sync (non-fatal)
+    try:
+        await start_recording_sync()
+        logger.info("InXPhone recording sync started")
+    except Exception:
+        logger.exception("Failed to start InXPhone recording sync")
+
     yield
 
     # Shutdown
     logger.info("Shutting down application")
+
+    # Stop InXPhone recording sync
+    try:
+        await stop_recording_sync()
+        logger.info("InXPhone recording sync stopped")
+    except Exception:
+        logger.exception("Error stopping InXPhone recording sync")
 
     # Stop campaign worker
     try:
@@ -208,6 +224,7 @@ app.include_router(phone_numbers.router)  # Phone numbers API
 app.include_router(auth.router)  # Authentication API
 app.include_router(compliance.router)  # Compliance API (GDPR/CCPA)
 app.include_router(integrations.router)  # Integrations API (external tools)
+app.include_router(inxphone.router)  # InXPhone (MOR/Kolmisoft) API
 app.include_router(embed.router)  # Public embed API (unauthenticated)
 app.include_router(embed.ws_router)  # Public embed WebSocket
 

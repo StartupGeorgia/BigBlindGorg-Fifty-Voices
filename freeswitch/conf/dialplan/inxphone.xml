@@ -1,0 +1,49 @@
+<!-- InXPhone Dialplan
+     Routes incoming calls from MOR gateway to our backend via WebSocket.
+
+     When MOR sends a call to our FreeSWITCH device:
+     1. Answer the call
+     2. Use mod_audio_stream to open WebSocket to backend
+     3. Stream bidirectional audio (L16 8kHz)
+     4. On hangup, WebSocket closes automatically
+
+     Environment variables (set in docker-compose.yml):
+       BACKEND_WS_URL  - WebSocket base URL (e.g., ws://backend:8001/ws/telephony/inxphone)
+       INXPHONE_AGENT_ID - UUID of the agent that handles InXPhone calls
+-->
+<include>
+  <context name="public">
+
+    <!-- Match all calls coming from the InXPhone/MOR gateway -->
+    <extension name="inxphone_inbound">
+      <condition field="sofia_profile" expression="external"/>
+      <condition field="${sip_gateway}" expression="inxphone">
+
+        <!-- Answer the call immediately -->
+        <action application="answer"/>
+
+        <!-- Set audio parameters for GPT Realtime compatibility -->
+        <action application="set" data="RECORD_STEREO=false"/>
+        <action application="set" data="media_bug_answer_req=false"/>
+
+        <!-- Stream audio to backend via WebSocket using mod_audio_stream
+             Audio format: L16 (16-bit PCM) at rate 8000 Hz, mono
+             The backend WebSocket handler converts as needed for GPT Realtime -->
+        <action application="audio_stream"
+                data="${BACKEND_WS_URL}/${INXPHONE_AGENT_ID} start both L16 8000"/>
+
+        <!-- Keep the call alive while WebSocket is active -->
+        <action application="park"/>
+
+      </condition>
+    </extension>
+
+    <!-- Fallback for unmatched calls -->
+    <extension name="unmatched">
+      <condition field="destination_number" expression=".*">
+        <action application="hangup" data="NO_ROUTE_DESTINATION"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

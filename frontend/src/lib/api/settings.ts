@@ -50,6 +50,8 @@ export interface SettingsResponse {
   elevenlabs_api_key_set: boolean;
   telnyx_api_key_set: boolean;
   twilio_account_sid_set: boolean;
+  inxphone_username_set: boolean;
+  inxphone_ai_number?: string;
   workspace_id: string | null;
 }
 
@@ -61,6 +63,11 @@ export interface UpdateSettingsRequest {
   telnyx_public_key?: string;
   twilio_account_sid?: string;
   twilio_auth_token?: string;
+  inxphone_username?: string;
+  inxphone_api_key?: string;
+  inxphone_device_id?: string;
+  inxphone_server_url?: string;
+  inxphone_ai_number?: string;
 }
 
 export async function fetchSettings(workspaceId?: string): Promise<SettingsResponse> {

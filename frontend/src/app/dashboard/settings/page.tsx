@@ -167,6 +167,46 @@ const API_KEY_PROVIDERS: ApiKeyProvider[] = [
       },
     ],
   },
+  {
+    id: "inxphone",
+    name: "InXPhone",
+    description: "SIP-based telephony provider with manually provisioned phone numbers from InEx.",
+    category: "telephony",
+    icon: Phone,
+    documentationUrl: "https://inxphone.com/",
+    fields: [
+      {
+        name: "inxphone_username",
+        label: "Username",
+        placeholder: "Enter your InXPhone username",
+        settingsKey: "inxphone_username_set",
+      },
+      {
+        name: "inxphone_api_key",
+        label: "API Key",
+        placeholder: "Enter your InXPhone API key",
+        settingsKey: "inxphone_username_set",
+      },
+      {
+        name: "inxphone_device_id",
+        label: "Device ID",
+        placeholder: "Enter your device ID",
+        settingsKey: "inxphone_username_set",
+      },
+      {
+        name: "inxphone_server_url",
+        label: "Server URL",
+        placeholder: "e.g., sip.inxphone.com",
+        settingsKey: "inxphone_username_set",
+      },
+      {
+        name: "inxphone_ai_number",
+        label: "AI Phone Number",
+        placeholder: "e.g., 995322019445",
+        settingsKey: "inxphone_username_set",
+      },
+    ],
+  },
 ];
 
 export default function SettingsPage() {

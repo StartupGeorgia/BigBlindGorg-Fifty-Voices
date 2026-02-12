@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { initiateCall, hangupCall, listPhoneNumbers, type PhoneNumber } from "@/lib/api/telephony";
+import { fetchSettings } from "@/lib/api/settings";
 import type { Agent } from "@/lib/api/agents";
 import { api } from "@/lib/api";
 
@@ -46,7 +47,6 @@ export function MakeCallDialog({ open, onOpenChange, agent, workspaceId }: MakeC
   const [callState, setCallState] = useState<CallState>("idle");
   const [callId, setCallId] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
-  const [provider] = useState<"twilio" | "telnyx">("telnyx");
 
   // Fetch agent's workspaces if workspaceId not provided
   const { data: agentWorkspaces = [] } = useQuery<AgentWorkspace[]>({
@@ -61,13 +61,51 @@ export function MakeCallDialog({ open, onOpenChange, agent, workspaceId }: MakeC
   // Use provided workspaceId or fall back to agent's first workspace
   const effectiveWorkspaceId = workspaceId ?? agentWorkspaces[0]?.workspace_id;
 
-  // Fetch available phone numbers
-  const { data: phoneNumbers = [] } = useQuery({
-    queryKey: ["phone-numbers", provider, effectiveWorkspaceId],
-    queryFn: () =>
-      effectiveWorkspaceId ? listPhoneNumbers(provider, effectiveWorkspaceId) : Promise.resolve([]),
+  // Fetch available phone numbers from Telnyx and Twilio
+  const { data: telnyxTwilioNumbers = [] } = useQuery({
+    queryKey: ["phone-numbers-all", effectiveWorkspaceId],
+    queryFn: async () => {
+      if (!effectiveWorkspaceId) return [];
+      const [telnyx, twilio] = await Promise.allSettled([
+        listPhoneNumbers("telnyx", effectiveWorkspaceId),
+        listPhoneNumbers("twilio", effectiveWorkspaceId),
+      ]);
+      const numbers: PhoneNumber[] = [];
+      if (telnyx.status === "fulfilled") numbers.push(...telnyx.value);
+      if (twilio.status === "fulfilled") numbers.push(...twilio.value);
+      return numbers;
+    },
     enabled: open && !!effectiveWorkspaceId,
   });
+
+  // Fetch InXPhone settings to get the AI number
+  const { data: inxphoneSettings } = useQuery({
+    queryKey: ["inxphone-settings", effectiveWorkspaceId],
+    queryFn: () => effectiveWorkspaceId ? fetchSettings(effectiveWorkspaceId) : Promise.resolve(null),
+    enabled: open && !!effectiveWorkspaceId,
+  });
+
+  // Combine all phone numbers including InXPhone
+  const phoneNumbers: PhoneNumber[] = (() => {
+    const numbers = [...telnyxTwilioNumbers];
+    if (inxphoneSettings && inxphoneSettings.inxphone_ai_number && inxphoneSettings.inxphone_username_set) {
+      numbers.push({
+        id: `inxphone-${inxphoneSettings.inxphone_ai_number}`,
+        phone_number: inxphoneSettings.inxphone_ai_number,
+        friendly_name: "InXPhone",
+        provider: "inxphone",
+        capabilities: { voice: true },
+        assigned_agent_id: null,
+      });
+    }
+    return numbers;
+  })();
+
+  // Determine provider based on selected from number
+  const getProviderForNumber = (number: string): "telnyx" | "twilio" | "inxphone" => {
+    const match = phoneNumbers.find((n) => n.phone_number === number);
+    return (match?.provider as "telnyx" | "twilio" | "inxphone") ?? "telnyx";
+  };
 
   // Set default from number when phone numbers load
   useEffect(() => {
@@ -103,7 +141,8 @@ export function MakeCallDialog({ open, onOpenChange, agent, workspaceId }: MakeC
   }, [open]);
 
   const initiateMutation = useMutation({
-    mutationFn: initiateCall,
+    mutationFn: (request: Parameters<typeof initiateCall>[0]) =>
+      initiateCall(request, effectiveWorkspaceId!),
     onSuccess: (data) => {
       setCallId(data.call_id);
       setCallState("ringing");
@@ -123,7 +162,9 @@ export function MakeCallDialog({ open, onOpenChange, agent, workspaceId }: MakeC
   const hangupMutation = useMutation({
     mutationFn: () => {
       if (!callId) throw new Error("No call to hang up");
-      return hangupCall(callId, provider);
+      if (!effectiveWorkspaceId) throw new Error("No workspace ID");
+      const detectedProvider = getProviderForNumber(selectedFromNumber);
+      return hangupCall(callId, detectedProvider, effectiveWorkspaceId);
     },
     onSuccess: () => {
       setCallState("ended");
@@ -143,10 +184,12 @@ export function MakeCallDialog({ open, onOpenChange, agent, workspaceId }: MakeC
       return;
     }
     setCallState("dialing");
+    const detectedProvider = getProviderForNumber(selectedFromNumber);
     initiateMutation.mutate({
       to_number: phoneNumber,
       from_number: selectedFromNumber,
       agent_id: agent.id,
+      provider: detectedProvider,
     });
   };
 

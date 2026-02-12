@@ -30,6 +30,7 @@ from app.models.agent import Agent
 from app.models.call_record import CallDirection, CallRecord, CallStatus
 from app.models.campaign import Campaign, CampaignContact, CampaignContactStatus
 from app.models.workspace import AgentWorkspace
+from app.services.telephony.inxphone_service import InXPhoneService
 from app.services.telephony.telnyx_service import TelnyxService
 from app.services.telephony.twilio_service import TwilioService
 
@@ -82,6 +83,7 @@ class InitiateCallRequest(BaseModel):
     to_number: str
     from_number: str
     agent_id: str
+    provider: str | None = None  # "twilio", "telnyx", or "inxphone" (auto-detect if None)
 
 
 class CallResponse(BaseModel):
@@ -146,6 +148,38 @@ async def get_telnyx_service(
     return TelnyxService(
         api_key=user_settings.telnyx_api_key,
         public_key=user_settings.telnyx_public_key,
+    )
+
+
+async def get_inxphone_service(
+    user_id: int, db: AsyncSession, workspace_id: uuid.UUID | None = None
+) -> InXPhoneService | None:
+    """Get InXPhone service for a user.
+
+    Args:
+        user_id: User ID (int)
+        db: Database session
+        workspace_id: Workspace UUID (required for workspace-specific API keys)
+    """
+    user_uuid = user_id_to_uuid(user_id)
+    user_settings = await get_user_api_keys(user_uuid, db, workspace_id=workspace_id)
+
+    if (
+        not user_settings
+        or not user_settings.inxphone_username
+        or not user_settings.inxphone_api_key
+        or not user_settings.inxphone_device_id
+        or not user_settings.inxphone_server_url
+        or not user_settings.inxphone_ai_number
+    ):
+        return None
+
+    return InXPhoneService(
+        username=user_settings.inxphone_username,
+        api_key=user_settings.inxphone_api_key,
+        device_id=user_settings.inxphone_device_id,
+        server_url=user_settings.inxphone_server_url,
+        ai_number=user_settings.inxphone_ai_number,
     )
 
 
@@ -334,8 +368,14 @@ async def list_phone_numbers(
             return []
         numbers = await telnyx_service.list_phone_numbers()
 
+    elif provider == "inxphone":
+        # InXPhone numbers are managed in MOR admin, return empty list
+        return []
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid provider. Use 'twilio' or 'telnyx'.")
+        raise HTTPException(
+            status_code=400, detail="Invalid provider. Use 'twilio', 'telnyx', or 'inxphone'."
+        )
 
     # Map to response model
     return [
@@ -408,8 +448,16 @@ async def search_phone_numbers(
             limit=request.limit,
         )
 
+    elif request.provider == "inxphone":
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number search is not available for InXPhone. Numbers are managed in MOR admin.",
+        )
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid provider. Use 'twilio' or 'telnyx'.")
+        raise HTTPException(
+            status_code=400, detail="Invalid provider. Use 'twilio', 'telnyx', or 'inxphone'."
+        )
 
     return [
         PhoneNumberResponse(
@@ -503,8 +551,16 @@ async def purchase_phone_number(
         number = await telnyx_service.purchase_phone_number(purchase_request.phone_number)
         await _configure_webhook_for_provider(telnyx_service, number.id, "telnyx", log)
 
+    elif purchase_request.provider == "inxphone":
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number purchase is not available for InXPhone. Numbers are managed in MOR admin.",
+        )
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid provider. Use 'twilio' or 'telnyx'.")
+        raise HTTPException(
+            status_code=400, detail="Invalid provider. Use 'twilio', 'telnyx', or 'inxphone'."
+        )
 
     return PhoneNumberResponse(
         id=number.id,
@@ -564,6 +620,12 @@ async def release_phone_number(
             )
         success = await telnyx_service.release_phone_number(phone_number_id)
 
+    elif provider == "inxphone":
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number release is not available for InXPhone. Numbers are managed in MOR admin.",
+        )
+
     else:
         raise HTTPException(status_code=400, detail="Invalid provider.")
 
@@ -611,11 +673,10 @@ async def initiate_call(
         raise HTTPException(status_code=400, detail="Invalid workspace_id format") from e
 
     # Load agent to get provider preference (verify user owns agent)
-    user_uuid = user_id_to_uuid(current_user.id)
     result = await db.execute(
         select(Agent).where(
             Agent.id == uuid.UUID(call_request.agent_id),
-            Agent.user_id == user_uuid,  # Ensure user owns the agent
+            Agent.user_id == current_user.id,  # Agent.user_id is int
         )
     )
     agent = result.scalar_one_or_none()
@@ -623,42 +684,69 @@ async def initiate_call(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Determine provider from agent's phone number configuration
-    # Default to Telnyx if not specified
-    provider = "telnyx"
-
-    # Try Telnyx first
-    telnyx_service = await get_telnyx_service(current_user.id, db, workspace_id=workspace_uuid)
-    twilio_service = await get_twilio_service(current_user.id, db, workspace_id=workspace_uuid)
-
-    if not telnyx_service and not twilio_service:
-        raise HTTPException(
-            status_code=400,
-            detail="No telephony provider configured. Please add Twilio or Telnyx credentials in Settings.",
+    # If provider explicitly requested as "inxphone", use it directly
+    if call_request.provider == "inxphone":
+        inxphone_service = await get_inxphone_service(
+            current_user.id, db, workspace_id=workspace_uuid
         )
+        if not inxphone_service:
+            raise HTTPException(
+                status_code=400,
+                detail="InXPhone credentials not configured. Please add them in Settings.",
+            )
+        try:
+            # webhook_url not used by InXPhone (FreeSWITCH handles call routing)
+            call_info = await inxphone_service.initiate_call(
+                to_number=call_request.to_number,
+                from_number=call_request.from_number,
+                webhook_url="",
+                agent_id=call_request.agent_id,
+            )
+        finally:
+            await inxphone_service.close()
 
-    # Build webhook URL
-    base_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{base_url}/webhooks/{'telnyx' if telnyx_service else 'twilio'}/answer?agent_id={call_request.agent_id}"
+        provider = "inxphone"
 
-    if telnyx_service:
-        provider = "telnyx"
-        call_info = await telnyx_service.initiate_call(
-            to_number=call_request.to_number,
-            from_number=call_request.from_number,
-            webhook_url=webhook_url,
-            agent_id=call_request.agent_id,
-        )
-    elif twilio_service:
-        provider = "twilio"
-        call_info = await twilio_service.initiate_call(
-            to_number=call_request.to_number,
-            from_number=call_request.from_number,
-            webhook_url=webhook_url,
-            agent_id=call_request.agent_id,
-        )
     else:
-        raise HTTPException(status_code=500, detail="Failed to initialize telephony service")
+        # Auto-detect or use specified provider (Telnyx/Twilio)
+        provider = "telnyx"
+
+        telnyx_service = await get_telnyx_service(current_user.id, db, workspace_id=workspace_uuid)
+        twilio_service = await get_twilio_service(current_user.id, db, workspace_id=workspace_uuid)
+
+        if call_request.provider == "twilio":
+            telnyx_service = None  # Force Twilio
+        elif call_request.provider == "telnyx":
+            twilio_service = None  # Force Telnyx
+
+        if not telnyx_service and not twilio_service:
+            raise HTTPException(
+                status_code=400,
+                detail="No telephony provider configured. Please add Twilio or Telnyx credentials in Settings.",
+            )
+
+        # Build webhook URL
+        base_url = str(request.base_url).rstrip("/")
+        webhook_url = f"{base_url}/webhooks/{'telnyx' if telnyx_service else 'twilio'}/answer?agent_id={call_request.agent_id}"
+
+        if telnyx_service:
+            provider = "telnyx"
+            call_info = await telnyx_service.initiate_call(
+                to_number=call_request.to_number,
+                from_number=call_request.from_number,
+                webhook_url=webhook_url,
+                agent_id=call_request.agent_id,
+            )
+        elif twilio_service:
+            provider = "twilio"
+            call_info = await twilio_service.initiate_call(
+                to_number=call_request.to_number,
+                from_number=call_request.from_number,
+                webhook_url=webhook_url,
+                agent_id=call_request.agent_id,
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to initialize telephony service")
 
     log.info("call_initiated", call_id=call_info.call_id, provider=provider)
 
@@ -731,6 +819,12 @@ async def hangup_call(
         telnyx_service = await get_telnyx_service(current_user.id, db, workspace_id=workspace_uuid)
         if telnyx_service:
             success = await telnyx_service.hangup_call(call_id)
+
+    elif provider == "inxphone":
+        raise HTTPException(
+            status_code=400,
+            detail="Remote hangup is not supported for InXPhone calls.",
+        )
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to hang up call")

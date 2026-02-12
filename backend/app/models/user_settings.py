@@ -56,6 +56,23 @@ class UserSettings(Base):
         Text, nullable=True, comment="Twilio Auth Token"
     )
 
+    # InXPhone (MOR/Kolmisoft) API Keys
+    inxphone_username: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="MOR API username"
+    )
+    inxphone_api_key: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="MOR API secret key for hash computation"
+    )
+    inxphone_device_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="MOR SIP device ID"
+    )
+    inxphone_server_url: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="MOR billing API base URL"
+    )
+    inxphone_ai_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="InXPhone AI agent phone number (DID)"
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False

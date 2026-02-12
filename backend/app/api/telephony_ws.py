@@ -1,7 +1,7 @@
-"""Telephony WebSocket endpoints for Twilio and Telnyx media streaming.
+"""Telephony WebSocket endpoints for Twilio, Telnyx, and InXPhone media streaming.
 
-These WebSocket endpoints handle the audio streams from Twilio and Telnyx,
-connecting them to our AI voice agent pipeline.
+These WebSocket endpoints handle the audio streams from Twilio, Telnyx, and
+FreeSWITCH (InXPhone), connecting them to our AI voice agent pipeline.
 """
 
 import asyncio
@@ -633,3 +633,239 @@ async def _handle_telnyx_stream(  # noqa: PLR0915
             await websocket.close(code=1000, reason="Call ended by agent")
 
     return call_control_id
+
+
+# =============================================================================
+# InXPhone / FreeSWITCH WebSocket Endpoint
+# =============================================================================
+
+
+@router.websocket("/inxphone/{agent_id}")
+async def inxphone_media_stream(
+    websocket: WebSocket,
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """WebSocket endpoint for FreeSWITCH mod_audio_stream (InXPhone).
+
+    FreeSWITCH sends raw binary audio frames via WebSocket.
+    Audio format: 16-bit PCM (L16), 8kHz mono from mod_audio_stream.
+
+    Unlike Twilio/Telnyx which use JSON-wrapped base64 audio, FreeSWITCH
+    sends raw binary WebSocket frames containing PCM audio data.
+    """
+    session_id = str(uuid.uuid4())
+    log = logger.bind(
+        endpoint="inxphone_media_stream",
+        agent_id=agent_id,
+        session_id=session_id,
+    )
+
+    await websocket.accept()
+    log.info("inxphone_websocket_connected")
+
+    try:
+        # Load agent configuration
+        result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(agent_id)))
+        agent = result.scalar_one_or_none()
+
+        if not agent:
+            log.error("agent_not_found")
+            await websocket.close(code=4004, reason="Agent not found")
+            return
+
+        if not agent.is_active:
+            log.error("agent_not_active")
+            await websocket.close(code=4003, reason="Agent is not active")
+            return
+
+        log.info("agent_loaded", agent_name=agent.name)
+
+        user_id_int = agent.user_id
+        workspace_id = await get_agent_workspace_id(agent.id, db)
+
+        # Build agent config
+        agent_config = {
+            "system_prompt": agent.system_prompt,
+            "enabled_tools": agent.enabled_tools,
+            "language": agent.language,
+            "voice": agent.voice or "shimmer",
+            "enable_transcript": agent.enable_transcript,
+            "initial_greeting": agent.initial_greeting,
+        }
+
+        # Create call record for the FreeSWITCH call
+        from app.models.call_record import CallDirection, CallRecord, CallStatus
+
+        call_record = CallRecord(
+            user_id=agent.user_id if isinstance(agent.user_id, uuid.UUID) else uuid.UUID(int=0),
+            workspace_id=workspace_id,
+            provider="inxphone",
+            provider_call_id=session_id,
+            agent_id=agent.id,
+            direction=CallDirection.INBOUND.value,
+            status=CallStatus.IN_PROGRESS.value,
+            from_number="unknown",
+            to_number="unknown",
+        )
+        db.add(call_record)
+        await db.commit()
+        log.info("call_record_created", record_id=str(call_record.id))
+
+        # Initialize GPT Realtime session
+        async with GPTRealtimeSession(
+            db=db,
+            user_id=user_id_int,
+            agent_config=agent_config,
+            session_id=session_id,
+            workspace_id=workspace_id,
+        ) as realtime_session:
+            await _handle_inxphone_stream(
+                websocket=websocket,
+                realtime_session=realtime_session,
+                log=log,
+                enable_transcript=agent.enable_transcript,
+            )
+
+            # Save transcript if enabled
+            if agent.enable_transcript:
+                transcript = realtime_session.get_transcript()
+                await save_transcript_to_call_record(session_id, transcript, db, log)
+
+    except WebSocketDisconnect:
+        log.info("inxphone_websocket_disconnected")
+    except Exception as e:
+        log.exception("inxphone_websocket_error", error=str(e))
+    finally:
+        log.info("inxphone_websocket_closed")
+
+
+async def _handle_inxphone_stream(
+    websocket: WebSocket,
+    realtime_session: GPTRealtimeSession,
+    log: Any,
+    enable_transcript: bool = False,
+) -> None:
+    """Handle FreeSWITCH mod_audio_stream binary WebSocket messages.
+
+    mod_audio_stream sends raw binary frames containing L16 (16-bit PCM) audio.
+    We convert to mulaw for GPT Realtime and convert responses back.
+
+    Args:
+        websocket: WebSocket connection from FreeSWITCH
+        realtime_session: GPT Realtime session
+        log: Logger instance
+        enable_transcript: Whether to capture transcript
+    """
+    should_end_call = False
+
+    async def freeswitch_to_realtime() -> None:
+        """Forward audio from FreeSWITCH to GPT Realtime."""
+        nonlocal should_end_call
+
+        try:
+            while not should_end_call:
+                # FreeSWITCH mod_audio_stream sends raw binary audio frames
+                audio_bytes = await websocket.receive_bytes()
+                if audio_bytes:
+                    await realtime_session.send_audio(audio_bytes)
+        except WebSocketDisconnect:
+            log.info("freeswitch_to_realtime_disconnected")
+        except Exception as e:
+            log.exception("freeswitch_to_realtime_error", error=str(e))
+
+    async def realtime_to_freeswitch() -> None:  # noqa: PLR0912
+        """Forward audio from GPT Realtime to FreeSWITCH."""
+        nonlocal should_end_call
+
+        try:
+            if not realtime_session.connection:
+                log.error("no_realtime_connection")
+                return
+
+            pending_end_call = False
+            greeting_triggered = False
+
+            async for event in realtime_session.connection:
+                event_type = event.type
+
+                # Trigger initial greeting after session is configured
+                if event_type == "session.updated" and not greeting_triggered:
+                    greeting_triggered = True
+                    triggered = await realtime_session.trigger_initial_greeting()
+                    if triggered:
+                        log.info("initial_greeting_triggered_after_session_update")
+
+                # Handle audio output - send raw binary back to FreeSWITCH
+                elif event_type == "response.audio.delta":
+                    if hasattr(event, "delta") and event.delta:
+                        audio_bytes = base64.b64decode(event.delta)
+                        # Send raw binary audio to FreeSWITCH
+                        await websocket.send_bytes(audio_bytes)
+
+                # Handle tool calls
+                elif event_type == "response.function_call_arguments.done":
+                    log.info(
+                        "handling_function_call",
+                        call_id=event.call_id,
+                        name=event.name,
+                    )
+                    result = await realtime_session.handle_function_call_event(event)
+                    if result.get("action") == "end_call":
+                        log.info("end_call_action_received", reason=result.get("reason"))
+                        pending_end_call = True
+
+                # Capture transcript events
+                elif (
+                    enable_transcript
+                    and event_type == "conversation.item.input_audio_transcription.completed"
+                ):
+                    if hasattr(event, "transcript") and event.transcript:
+                        realtime_session.add_user_transcript(event.transcript)
+                        log.debug("user_transcript_captured", length=len(event.transcript))
+
+                elif enable_transcript and event_type == "response.audio_transcript.delta":
+                    if hasattr(event, "delta") and event.delta:
+                        realtime_session.accumulate_assistant_text(event.delta)
+
+                elif enable_transcript and event_type == "response.audio_transcript.done":
+                    realtime_session.flush_assistant_text()
+
+                # Handle response completion
+                elif event_type == "response.done":
+                    log.debug("realtime_event", event_type=event_type)
+                    if pending_end_call:
+                        log.info("ending_call_after_response_complete")
+                        should_end_call = True
+                        break
+
+                elif event_type in [
+                    "response.audio.done",
+                    "input_audio_buffer.speech_started",
+                    "input_audio_buffer.speech_stopped",
+                ]:
+                    log.debug("realtime_event", event_type=event_type)
+
+        except Exception as e:
+            log.exception("realtime_to_freeswitch_error", error=str(e))
+
+    # Run both directions concurrently
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                freeswitch_to_realtime(),
+                realtime_to_freeswitch(),
+                return_exceptions=True,
+            ),
+            timeout=300.0,
+        )
+    except TimeoutError:
+        log.warning(
+            "inxphone_bridge_timeout", message="Call exceeded max duration, forcing cleanup"
+        )
+
+    # Close WebSocket if end_call was triggered
+    if should_end_call:
+        log.info("closing_websocket_for_end_call")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1000, reason="Call ended by agent")

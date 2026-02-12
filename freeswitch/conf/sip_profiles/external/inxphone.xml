@@ -1,0 +1,29 @@
+<!-- InXPhone MOR Gateway Registration
+     FreeSWITCH registers with MOR SIP server as the configured device.
+
+     Environment variables (set in docker-compose.yml):
+       INXPHONE_SIP_SERVER   - MOR SIP server IP/hostname (e.g., 92.241.68.3)
+       INXPHONE_SIP_USERNAME - SIP device username
+       INXPHONE_SIP_PASSWORD - SIP device password
+-->
+<include>
+  <gateway name="inxphone">
+    <param name="realm" value="${INXPHONE_SIP_SERVER}"/>
+    <param name="proxy" value="${INXPHONE_SIP_SERVER}:5060"/>
+    <param name="register" value="true"/>
+    <param name="username" value="${INXPHONE_SIP_USERNAME}"/>
+    <param name="password" value="${INXPHONE_SIP_PASSWORD}"/>
+    <param name="expire-seconds" value="300"/>
+    <param name="register-transport" value="udp"/>
+    <param name="retry-seconds" value="30"/>
+
+    <!-- NAT traversal -->
+    <param name="contact-params" value="transport=udp"/>
+
+    <!-- Codec preferences: G.711 ulaw/alaw for GPT Realtime compatibility -->
+    <param name="codec-prefs" value="PCMU,PCMA"/>
+
+    <!-- Caller ID -->
+    <param name="caller-id-in-from" value="true"/>
+  </gateway>
+</include>

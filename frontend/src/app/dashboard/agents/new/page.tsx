@@ -63,7 +63,7 @@ const agentFormSchema = z.object({
   maxTokens: z.number().min(100).max(16000).default(2000),
 
   // Telephony
-  telephonyProvider: z.enum(["telnyx", "twilio"]),
+  telephonyProvider: z.enum(["telnyx", "twilio", "inxphone"]),
   phoneNumberId: z.string().optional(),
 
   // Advanced
@@ -847,6 +847,7 @@ export default function NewAgentPage() {
                           <SelectContent>
                             <SelectItem value="telnyx">Telnyx (Recommended)</SelectItem>
                             <SelectItem value="twilio">Twilio</SelectItem>
+                            <SelectItem value="inxphone">InXPhone</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

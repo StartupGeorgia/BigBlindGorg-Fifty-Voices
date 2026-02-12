@@ -56,6 +56,7 @@ import {
   type Provider,
 } from "@/lib/api/telephony";
 import { fetchAgents, updateAgent, type Agent } from "@/lib/api/agents";
+import { fetchSettings } from "@/lib/api/settings";
 import { api } from "@/lib/api";
 
 interface Workspace {
@@ -105,6 +106,8 @@ export default function PhoneNumbersPage() {
   const [isReleaseDialogOpen, setIsReleaseDialogOpen] = useState(false);
   const [numberToRelease, setNumberToRelease] = useState<PhoneNumber | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isAddNumberModalOpen, setIsAddNumberModalOpen] = useState(false);
+  const [addNumberValue, setAddNumberValue] = useState("");
 
   // Load phone numbers and agents on mount
   useEffect(() => {
@@ -155,10 +158,11 @@ export default function PhoneNumbersPage() {
         return;
       }
 
-      // Load phone numbers from both providers
-      const [telnyxNumbers, twilioNumbers] = await Promise.allSettled([
+      // Load phone numbers from all providers + InXPhone settings
+      const [telnyxNumbers, twilioNumbers, inxphoneSettings] = await Promise.allSettled([
         listPhoneNumbers("telnyx", workspaceId),
         listPhoneNumbers("twilio", workspaceId),
+        fetchSettings(workspaceId),
       ]);
 
       const numbers: PhoneNumber[] = [];
@@ -187,6 +191,19 @@ export default function PhoneNumbersPage() {
             isActive: true,
           }))
         );
+      }
+
+      // Process InXPhone number from settings
+      if (inxphoneSettings.status === "fulfilled") {
+        const settings = inxphoneSettings.value;
+        if (settings.inxphone_ai_number && settings.inxphone_username_set) {
+          numbers.push({
+            id: `inxphone-${settings.inxphone_ai_number}`,
+            phoneNumber: settings.inxphone_ai_number,
+            provider: "inxphone",
+            isActive: true,
+          });
+        }
       }
 
       // Map agent names to phone numbers
@@ -399,6 +416,10 @@ export default function PhoneNumbersPage() {
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
+          <Button size="sm" variant="outline" onClick={() => { setAddNumberValue(""); setIsAddNumberModalOpen(true); }}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Number
+          </Button>
           <Button size="sm" onClick={openPurchaseModal}>
             <Plus className="mr-2 h-4 w-4" />
             Purchase Number
@@ -418,8 +439,8 @@ export default function PhoneNumbersPage() {
             <Phone className="mb-4 h-16 w-16 text-muted-foreground/50" />
             <h3 className="mb-2 text-lg font-semibold">No phone numbers yet</h3>
             <p className="mb-4 max-w-sm text-center text-sm text-muted-foreground">
-              Purchase a phone number from Telnyx or Twilio to start receiving calls. Make sure to
-              configure your API credentials in Settings first.
+              Purchase a phone number from Telnyx or Twilio, or configure InXPhone in Settings to
+              start receiving calls.
             </p>
             <Button size="sm" onClick={openPurchaseModal}>
               <Plus className="mr-2 h-4 w-4" />
@@ -482,12 +503,14 @@ export default function PhoneNumbersPage() {
                           <DropdownMenuItem onClick={() => openDetailsModal(number)}>
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => handleReleaseNumber(number)}
-                          >
-                            Release Number
-                          </DropdownMenuItem>
+                          {number.provider !== "inxphone" && (
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleReleaseNumber(number)}
+                            >
+                              Release Number
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -665,6 +688,60 @@ export default function PhoneNumbersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAssignModalOpen(false)}>
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Number Modal (InXPhone) */}
+      <Dialog open={isAddNumberModalOpen} onOpenChange={setIsAddNumberModalOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Add Phone Number</DialogTitle>
+            <DialogDescription>
+              Manually add a phone number provided by InXPhone
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="addPhoneNumber">Phone Number</Label>
+              <Input
+                id="addPhoneNumber"
+                placeholder="e.g., 995322019445"
+                value={addNumberValue}
+                onChange={(e) => setAddNumberValue(e.target.value.replace(/[^\d+]/g, ""))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Provider</Label>
+              <Input value="InXPhone" disabled />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddNumberModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!addNumberValue.trim()) {
+                  toast.error("Please enter a phone number");
+                  return;
+                }
+                setPhoneNumbers((prev) => [
+                  ...prev,
+                  {
+                    id: `inxphone-${addNumberValue}`,
+                    phoneNumber: addNumberValue,
+                    provider: "inxphone",
+                    isActive: true,
+                  },
+                ]);
+                toast.success(`Added ${addNumberValue} as InXPhone number`);
+                setIsAddNumberModalOpen(false);
+              }}
+              disabled={!addNumberValue.trim()}
+            >
+              Add Number
             </Button>
           </DialogFooter>
         </DialogContent>

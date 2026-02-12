@@ -44,7 +44,7 @@ async function fetchWithTimeout(
   }
 }
 
-export type Provider = "twilio" | "telnyx";
+export type Provider = "twilio" | "telnyx" | "inxphone";
 
 export interface PhoneNumber {
   id: string;
@@ -76,6 +76,7 @@ export interface InitiateCallRequest {
   to_number: string;
   from_number: string;
   agent_id: string;
+  provider?: string;
 }
 
 export interface CallResponse {
@@ -193,14 +194,20 @@ export async function releasePhoneNumber(
 /**
  * Initiate an outbound call
  */
-export async function initiateCall(request: InitiateCallRequest): Promise<CallResponse> {
-  const response = await fetchWithTimeout(`${API_BASE}/api/v1/telephony/calls`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-  });
+export async function initiateCall(
+  request: InitiateCallRequest,
+  workspaceId: string
+): Promise<CallResponse> {
+  const response = await fetchWithTimeout(
+    `${API_BASE}/api/v1/telephony/calls?workspace_id=${workspaceId}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
@@ -213,9 +220,13 @@ export async function initiateCall(request: InitiateCallRequest): Promise<CallRe
 /**
  * Hang up an active call
  */
-export async function hangupCall(callId: string, provider: Provider): Promise<void> {
+export async function hangupCall(
+  callId: string,
+  provider: Provider,
+  workspaceId: string
+): Promise<void> {
   const response = await fetchWithTimeout(
-    `${API_BASE}/api/v1/telephony/calls/${callId}/hangup?provider=${provider}`,
+    `${API_BASE}/api/v1/telephony/calls/${callId}/hangup?provider=${provider}&workspace_id=${workspaceId}`,
     {
       method: "POST",
     }

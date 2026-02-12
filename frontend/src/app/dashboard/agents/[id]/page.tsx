@@ -53,6 +53,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { fetchSettings } from "@/lib/api/settings";
 import { getLanguagesForTier } from "@/lib/languages";
 import { AVAILABLE_INTEGRATIONS } from "@/lib/integrations";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -175,7 +176,7 @@ const agentFormSchema = z.object({
   maxTokens: z.number().min(100).max(16000).default(2000),
 
   // Telephony
-  telephonyProvider: z.enum(["telnyx", "twilio"]),
+  telephonyProvider: z.enum(["telnyx", "twilio", "inxphone"]),
   phoneNumberId: z.string().optional(),
 
   // Advanced
@@ -315,6 +316,13 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     enabled: !!agentId && !!agent && !isDeleting,
   });
 
+  // Fetch workspace settings to detect InXPhone configuration
+  const { data: workspaceSettings } = useQuery({
+    queryKey: ["workspace-settings", agentWorkspaces[0]?.workspace_id],
+    queryFn: () => fetchSettings(agentWorkspaces[0]?.workspace_id),
+    enabled: !!agentWorkspaces[0]?.workspace_id && !!agent && !isDeleting,
+  });
+
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
@@ -349,11 +357,41 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
   // Track if form has been initialized with agent data
   const formInitialized = useRef(false);
 
-  // Reset form when agent data loads (only once per agent load)
+  // Detect telephony provider from agent's phone_number_id and workspace settings
+  const detectTelephonyProvider = (): "telnyx" | "twilio" | "inxphone" => {
+    const phoneId = agent?.phone_number_id;
+    if (!phoneId) return "telnyx";
+    // Check if the phone number matches InXPhone AI number from settings
+    if (workspaceSettings?.inxphone_ai_number) {
+      const aiNum = workspaceSettings.inxphone_ai_number;
+      if (phoneId === aiNum || phoneId === `inxphone-${aiNum}`) {
+        return "inxphone";
+      }
+    }
+    // If phone_number_id looks like a raw phone number (digits only, no UUID format),
+    // it's likely InXPhone since Telnyx/Twilio use UUIDs or SIDs as phone number IDs
+    if (/^\+?\d{7,15}$/.test(phoneId)) {
+      return "inxphone";
+    }
+    return "telnyx";
+  };
+
+  // Reset form when agent data loads (wait for workspace settings too if available)
   useEffect(() => {
     // Only initialize once we have the agent data
     if (agent && !formInitialized.current) {
+      // If agent has a phone number, wait for workspace settings to detect provider
+      const needsSettings = !!agent.phone_number_id && agentWorkspaces.length > 0;
+      if (needsSettings && !workspaceSettings) return;
+
       formInitialized.current = true;
+      const detectedProvider = detectTelephonyProvider();
+      // For InXPhone, the phoneNumberId stored might be just the number — normalize to match the id format
+      let phoneNumberId = agent.phone_number_id ?? undefined;
+      if (detectedProvider === "inxphone" && phoneNumberId && !phoneNumberId.startsWith("inxphone-")) {
+        phoneNumberId = `inxphone-${phoneNumberId}`;
+      }
+
       form.reset({
         name: agent.name,
         description: agent.description ?? "",
@@ -371,8 +409,8 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
         initialGreeting: agent.initial_greeting ?? "",
         temperature: agent.temperature,
         maxTokens: agent.max_tokens,
-        telephonyProvider: "telnyx",
-        phoneNumberId: agent.phone_number_id ?? undefined,
+        telephonyProvider: detectedProvider,
+        phoneNumberId,
         enableRecording: agent.enable_recording,
         enableTranscript: agent.enable_transcript,
         turnDetectionMode: "server-vad",
@@ -383,7 +421,7 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent]);
+  }, [agent, workspaceSettings, agentWorkspaces]);
 
   // Update workspaces when they load (separate from initial agent load)
   useEffect(() => {
@@ -413,6 +451,41 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     queryKey: ["phone-numbers", selectedWorkspaces[0], telephonyProvider],
     queryFn: async () => {
       if (!selectedWorkspaces[0]) return [];
+      if (telephonyProvider === "inxphone") {
+        // InXPhone numbers come from settings or the agent's current phone_number_id
+        const numbers: Array<{
+          id: string;
+          phone_number: string;
+          friendly_name: string | null;
+          provider: string;
+          assigned_agent_id: string | null;
+        }> = [];
+        const settings = await fetchSettings(selectedWorkspaces[0]);
+        if (settings.inxphone_ai_number) {
+          numbers.push({
+            id: `inxphone-${settings.inxphone_ai_number}`,
+            phone_number: settings.inxphone_ai_number,
+            friendly_name: "InXPhone",
+            provider: "inxphone",
+            assigned_agent_id: null,
+          });
+        }
+        // Also include the agent's current phone number if it's not already in the list
+        const agentPhoneId = agent?.phone_number_id;
+        if (agentPhoneId && /^\+?\d{7,15}$/.test(agentPhoneId)) {
+          const alreadyIncluded = numbers.some((n) => n.phone_number === agentPhoneId);
+          if (!alreadyIncluded) {
+            numbers.push({
+              id: `inxphone-${agentPhoneId}`,
+              phone_number: agentPhoneId,
+              friendly_name: "InXPhone",
+              provider: "inxphone",
+              assigned_agent_id: null,
+            });
+          }
+        }
+        return numbers;
+      }
       const response = await api.get<
         Array<{
           id: string;
@@ -1600,6 +1673,7 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
                           <SelectContent>
                             <SelectItem value="telnyx">Telnyx (Recommended)</SelectItem>
                             <SelectItem value="twilio">Twilio</SelectItem>
+                            <SelectItem value="inxphone">InXPhone</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

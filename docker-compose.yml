@@ -89,6 +89,29 @@ services:
     profiles:
       - tools
 
+  freeswitch:
+    image: signalwire/freeswitch:latest
+    container_name: voice-agent-freeswitch
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "16384-32768:16384-32768/udp"
+    volumes:
+      - ./freeswitch/conf:/etc/freeswitch
+    environment:
+      - BACKEND_WS_URL=ws://backend:8001/ws/telephony/inxphone
+      - INXPHONE_AGENT_ID=${INXPHONE_AGENT_ID:-}
+      - INXPHONE_SIP_SERVER=${INXPHONE_SIP_SERVER:-92.241.68.3}
+      - INXPHONE_SIP_USERNAME=${INXPHONE_SIP_USERNAME:-}
+      - INXPHONE_SIP_PASSWORD=${INXPHONE_SIP_PASSWORD:-}
+    networks:
+      - voice-agent-network
+    depends_on:
+      - redis
+    profiles:
+      - inxphone
+
 volumes:
   postgres_data:
     driver: local

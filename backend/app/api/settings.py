@@ -25,6 +25,11 @@ class UpdateSettingsRequest(BaseModel):
     telnyx_public_key: str | None = None
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
+    inxphone_username: str | None = None
+    inxphone_api_key: str | None = None
+    inxphone_device_id: str | None = None
+    inxphone_server_url: str | None = None
+    inxphone_ai_number: str | None = None
 
 
 class SettingsResponse(BaseModel):
@@ -35,6 +40,8 @@ class SettingsResponse(BaseModel):
     elevenlabs_api_key_set: bool
     telnyx_api_key_set: bool
     twilio_account_sid_set: bool
+    inxphone_username_set: bool = False
+    inxphone_ai_number: str | None = None
     workspace_id: str | None = None
 
 
@@ -98,6 +105,7 @@ async def get_settings(
             elevenlabs_api_key_set=False,
             telnyx_api_key_set=False,
             twilio_account_sid_set=False,
+            inxphone_username_set=False,
             workspace_id=workspace_id,
         )
 
@@ -107,6 +115,8 @@ async def get_settings(
         elevenlabs_api_key_set=bool(settings.elevenlabs_api_key),
         telnyx_api_key_set=bool(settings.telnyx_api_key),
         twilio_account_sid_set=bool(settings.twilio_account_sid),
+        inxphone_username_set=bool(settings.inxphone_username),
+        inxphone_ai_number=settings.inxphone_ai_number,
         workspace_id=str(settings.workspace_id) if settings.workspace_id else None,
     )
 
@@ -160,6 +170,16 @@ async def update_settings(
             settings.twilio_account_sid = request.twilio_account_sid or None
         if request.twilio_auth_token is not None:
             settings.twilio_auth_token = request.twilio_auth_token or None
+        if request.inxphone_username is not None:
+            settings.inxphone_username = request.inxphone_username or None
+        if request.inxphone_api_key is not None:
+            settings.inxphone_api_key = request.inxphone_api_key or None
+        if request.inxphone_device_id is not None:
+            settings.inxphone_device_id = request.inxphone_device_id or None
+        if request.inxphone_server_url is not None:
+            settings.inxphone_server_url = request.inxphone_server_url or None
+        if request.inxphone_ai_number is not None:
+            settings.inxphone_ai_number = request.inxphone_ai_number or None
 
         db.add(settings)
     else:
@@ -174,6 +194,11 @@ async def update_settings(
             telnyx_public_key=request.telnyx_public_key,
             twilio_account_sid=request.twilio_account_sid,
             twilio_auth_token=request.twilio_auth_token,
+            inxphone_username=request.inxphone_username,
+            inxphone_api_key=request.inxphone_api_key,
+            inxphone_device_id=request.inxphone_device_id,
+            inxphone_server_url=request.inxphone_server_url,
+            inxphone_ai_number=request.inxphone_ai_number,
         )
         db.add(settings)
 
