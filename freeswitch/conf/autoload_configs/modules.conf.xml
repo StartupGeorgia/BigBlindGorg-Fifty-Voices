@@ -1,0 +1,26 @@
+<!-- FreeSWITCH Module Loading Configuration
+     Only load the modules needed for InXPhone SIP-to-WebSocket bridging.
+-->
+<configuration name="modules.conf" description="Modules">
+  <modules>
+    <!-- SIP stack -->
+    <load module="mod_sofia"/>
+
+    <!-- Dialplan tools -->
+    <load module="mod_dptools"/>
+    <load module="mod_dialplan_xml"/>
+
+    <!-- CLI/API commands -->
+    <load module="mod_commands"/>
+
+    <!-- Audio streaming to WebSocket -->
+    <load module="mod_audio_stream"/>
+
+    <!-- Logging -->
+    <load module="mod_console"/>
+    <load module="mod_logfile"/>
+
+    <!-- Event socket for management -->
+    <load module="mod_event_socket"/>
+  </modules>
+</configuration>

@@ -26,6 +26,7 @@ from app.models.campaign import (
     CampaignStatus,
 )
 from app.models.contact import Contact
+from app.services.telephony.inxphone_service import InXPhoneService
 from app.services.telephony.telnyx_service import TelnyxService
 from app.services.telephony.twilio_service import TwilioService
 
@@ -286,7 +287,7 @@ class CampaignWorker:
 
     async def _get_telephony_service(
         self, campaign: Campaign, db: AsyncSession
-    ) -> TelnyxService | TwilioService | None:
+    ) -> TelnyxService | TwilioService | InXPhoneService | None:
         """Get telephony service for a campaign.
 
         Args:
@@ -306,7 +307,7 @@ class CampaignWorker:
         if not user_settings:
             return None
 
-        # Prefer Telnyx, fall back to Twilio
+        # Prefer Telnyx, fall back to Twilio, then InXPhone
         if user_settings.telnyx_api_key:
             return TelnyxService(
                 api_key=user_settings.telnyx_api_key,
@@ -319,6 +320,21 @@ class CampaignWorker:
                 auth_token=user_settings.twilio_auth_token,
             )
 
+        if (
+            user_settings.inxphone_username
+            and user_settings.inxphone_api_key
+            and user_settings.inxphone_device_id
+            and user_settings.inxphone_server_url
+            and user_settings.inxphone_ai_number
+        ):
+            return InXPhoneService(
+                username=user_settings.inxphone_username,
+                api_key=user_settings.inxphone_api_key,
+                device_id=user_settings.inxphone_device_id,
+                server_url=user_settings.inxphone_server_url,
+                ai_number=user_settings.inxphone_ai_number,
+            )
+
         return None
 
     async def _initiate_call(
@@ -326,7 +342,7 @@ class CampaignWorker:
         campaign: Campaign,
         campaign_contact: CampaignContact,
         contact: Contact,
-        telephony_service: TelnyxService | TwilioService,
+        telephony_service: TelnyxService | TwilioService | InXPhoneService,
     ) -> None:
         """Initiate an outbound call for a campaign contact.
 
@@ -343,13 +359,22 @@ class CampaignWorker:
         )
 
         # Build webhook URL for when call is answered
-        provider = "telnyx" if isinstance(telephony_service, TelnyxService) else "twilio"
-        webhook_url = (
-            f"{self.base_url}/webhooks/{provider}/answer"
-            f"?agent_id={campaign.agent_id}"
-            f"&campaign_id={campaign.id}"
-            f"&campaign_contact_id={campaign_contact.id}"
-        )
+        if isinstance(telephony_service, InXPhoneService):
+            provider = "inxphone"
+            # InXPhone uses FreeSWITCH for call routing, no webhook needed
+            webhook_url = ""
+        elif isinstance(telephony_service, TelnyxService):
+            provider = "telnyx"
+        else:
+            provider = "twilio"
+
+        if provider != "inxphone":
+            webhook_url = (
+                f"{self.base_url}/webhooks/{provider}/answer"
+                f"?agent_id={campaign.agent_id}"
+                f"&campaign_id={campaign.id}"
+                f"&campaign_contact_id={campaign_contact.id}"
+            )
 
         log.info("Initiating campaign call", webhook_url=webhook_url)
 
